@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaSop - Biplane Game (TypeScript)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #87CEEB;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #333;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D982 100%);
+        }
+        
+        #instructions {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #333;
+            font-size: 18px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="instructions">
+        ↑↓: Roll/Pitch (Hold for continuous rolls) | ←→: Power Down/Up | Space: Machine Gun | B: Drop Bomb | F: Fullscreen
+    </div>
+    <div id="loading">
+        Loading MegaSop...<br>
+        <small>Building TypeScript modules...</small>
+    </div>
+    
+    <script type="module">
+        // Remove loading message once the module loads
+        import('./dist/main.js').then(() => {
+            document.getElementById('loading').style.display = 'none';
+        }).catch(error => {
+            document.getElementById('loading').innerHTML = 
+                'Error loading game:<br><small>Please run "npm run build" first</small>';
+            console.error('Failed to load game:', error);
+        });
+    </script>
+</body>
+</html>

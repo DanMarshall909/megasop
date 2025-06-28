@@ -10,25 +10,31 @@ MegaSop is a side-scrolling biplane shooter game inspired by the classic DOS gam
 - No build process required - pure HTML/CSS/JS
 
 ## Game Controls
-- Arrow Keys: Move biplane
+- Arrow Keys Up/Down: Continuous roll/pitch (hold for barrel rolls)
+- Arrow Keys Left/Right: Power down/up
 - Space: Fire machine gun
 - B: Drop bombs
+- F: Toggle fullscreen
+- Any key on title screen: Start game
 
 ## Code Architecture
 
 ### Core Classes
-- `Game` (game.js:1): Main game controller handling game loop, collision detection, and state management
-- `Player` (game.js:105): Player biplane with movement and weapon systems
-- `Enemy` (game.js:162): AI-controlled enemy planes with basic movement patterns
-- `Bullet` (game.js:197): Projectile system for machine gun
-- `Bomb` (game.js:218): Gravity-affected bomb projectiles
+- `Game` (game.js:1): Main game controller with authentic PC speaker sound system and game states
+- `Player` (game.js:566): Player biplane with realistic flight physics and health system
+- `Enemy` (game.js:734): AI-controlled enemy planes with loop maneuvers and combat AI
+- `Bullet` (game.js:922): Player projectile system for machine gun
+- `Bomb` (game.js:943): Gravity-affected bomb projectiles with realistic physics
+- `EnemyBullet` (game.js:964): Enemy projectile system with targeting
 
 ### Game Systems
-- **Game Loop**: Uses requestAnimationFrame for smooth 60fps rendering
-- **Collision Detection**: Basic AABB collision system between bullets/bombs and enemies
-- **Scrolling Background**: Parallax cloud system that moves with game progression
-- **Enemy Spawning**: Continuous enemy generation as old enemies scroll off-screen
-- **Scoring**: Points awarded for destroying enemies (100 for bullets, 150 for bombs)
+- **Authentic Audio**: PC Speaker sound emulation with priority system faithful to original Sopwith
+- **Title Screen**: Classic title screen with authentic melody and game information
+- **Realistic Physics**: Lift, drag, thrust, and stall mechanics for authentic flight simulation
+- **Health System**: Player damage from crashes and enemy bullets with visual health bar
+- **AI Combat**: Enemy planes perform loops, chase player, and fire targeted bullets
+- **Terrain Collision**: Procedural terrain with realistic crash damage based on impact speed
+- **Game States**: Title screen, gameplay, and game over states with seamless transitions
 
 ### Canvas Rendering
 - Game renders at 800x600 resolution

@@ -26,11 +26,14 @@ class Game {
     }
     
     init() {
+        this.gameState = 'title'; // title, playing, gameOver
+        this.titleTimer = 0;
         this.player = new Player(this);
         this.bullets = [];
         this.bombs = [];
         this.enemies = [];
         this.enemyBullets = [];
+        this.birds = [];
         this.scrollOffset = 0;
         this.score = 0;
         this.cameraX = 0;
@@ -43,25 +46,100 @@ class Game {
     setupEventListeners() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.key] = true;
+            
+            // Fullscreen toggle
+            if (e.key === 'f' || e.key === 'F') {
+                this.toggleFullscreen();
+            }
         });
         
         window.addEventListener('keyup', (e) => {
             this.keys[e.key] = false;
         });
+        
+        // Handle fullscreen changes
+        document.addEventListener('fullscreenchange', () => {
+            this.handleFullscreenChange();
+        });
+    }
+    
+    toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            this.canvas.requestFullscreen().catch(err => {
+                console.log(`Error attempting to enable fullscreen: ${err.message}`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    }
+    
+    handleFullscreenChange() {
+        if (document.fullscreenElement) {
+            // Entered fullscreen - resize canvas
+            this.canvas.style.width = '100vw';
+            this.canvas.style.height = '100vh';
+            this.canvas.style.objectFit = 'contain';
+        } else {
+            // Exited fullscreen - restore original size
+            this.canvas.style.width = '';
+            this.canvas.style.height = '';
+            this.canvas.style.objectFit = '';
+        }
     }
     
     setupAudio() {
         try {
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             this.soundEnabled = true;
+            this.currentSound = null;
+            this.soundPriority = 0;
+            this.titleMusicPosition = 0;
+            this.titleMusicTimer = 0;
+            
+            // PC Speaker frequency table for authentic sounds
+            this.frequencies = {
+                'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23,
+                'G4': 392.00, 'A4': 440.00, 'B4': 493.88,
+                'C5': 523.25, 'D5': 587.33, 'E5': 659.25, 'F5': 698.46,
+                'G5': 783.99, 'A5': 880.00, 'B5': 987.77,
+                'C6': 1046.50
+            };
+            
+            // Original Sopwith title melody (simplified)
+            this.titleMelody = [
+                {note: 'G4', duration: 0.3},
+                {note: 'C5', duration: 0.3},
+                {note: 'E5', duration: 0.3},
+                {note: 'G5', duration: 0.6},
+                {note: 'F5', duration: 0.3},
+                {note: 'E5', duration: 0.3},
+                {note: 'D5', duration: 0.3},
+                {note: 'C5', duration: 0.6},
+                {note: 'G4', duration: 0.3},
+                {note: 'C5', duration: 0.3},
+                {note: 'E5', duration: 0.3},
+                {note: 'C5', duration: 0.6},
+                {note: 'rest', duration: 0.6}
+            ];
+            
         } catch (e) {
             console.log("Web Audio API not supported");
             this.soundEnabled = false;
         }
     }
     
-    playSound(frequency, duration, type = 'sine', volume = 0.1) {
+    playSound(frequency, duration, priority = 0, type = 'square', volume = 0.15) {
         if (!this.soundEnabled) return;
+        
+        // PC Speaker priority system - higher priority interrupts lower
+        if (this.currentSound && priority <= this.soundPriority) {
+            return; // Don't interrupt higher priority sound
+        }
+        
+        // Stop current sound if new one has higher priority
+        if (this.currentSound) {
+            this.currentSound.stop();
+        }
         
         try {
             const oscillator = this.audioContext.createOscillator();
@@ -71,7 +149,7 @@ class Game {
             gainNode.connect(this.audioContext.destination);
             
             oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
-            oscillator.type = type;
+            oscillator.type = type; // Square wave for authentic PC speaker sound
             
             gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
             gainNode.gain.linearRampToValueAtTime(volume, this.audioContext.currentTime + 0.01);
@@ -79,39 +157,73 @@ class Game {
             
             oscillator.start(this.audioContext.currentTime);
             oscillator.stop(this.audioContext.currentTime + duration);
+            
+            this.currentSound = oscillator;
+            this.soundPriority = priority;
+            
+            // Clear current sound when it ends
+            setTimeout(() => {
+                if (this.currentSound === oscillator) {
+                    this.currentSound = null;
+                    this.soundPriority = 0;
+                }
+            }, duration * 1000);
+            
         } catch (e) {
             console.log("Sound playback failed");
         }
     }
     
     playEngineSound() {
-        if (!this.soundEnabled) return;
-        
-        // Create a subtle engine rumble sound
-        const baseFreq = 60 + this.player.power * 40;
-        this.playSound(baseFreq, 0.1, 'sawtooth', 0.05);
+        // Priority 60 - Plane sound (continuous, low priority)
+        const baseFreq = 100 + this.player.power * 50;
+        this.playSound(baseFreq, 0.15, 60, 'square', 0.08);
     }
     
     playShootSound() {
-        // Machine gun sound - quick burst
-        this.playSound(800, 0.05, 'square', 0.1);
-        setTimeout(() => this.playSound(600, 0.03, 'square', 0.08), 20);
+        // Priority 30 - Shot sound (quick, sharp)
+        this.playSound(1000, 0.08, 30, 'square', 0.12);
     }
     
     playBombSound() {
-        // Bomb drop sound - descending tone
-        this.playSound(300, 0.3, 'square', 0.12);
+        // Priority 20 - Bomb sound (descending tone)
+        this.playSound(400, 0.25, 20, 'square', 0.15);
     }
     
     playExplosionSound() {
-        // Explosion sound - noise burst
-        this.playSound(150, 0.4, 'sawtooth', 0.15);
-        setTimeout(() => this.playSound(80, 0.3, 'square', 0.1), 50);
+        // Priority 10 - Explosion sound (noise burst with multiple tones)
+        this.playSound(200, 0.3, 10, 'square', 0.2);
+        setTimeout(() => this.playSound(150, 0.2, 10, 'square', 0.15), 100);
+        setTimeout(() => this.playSound(100, 0.15, 10, 'square', 0.1), 200);
     }
     
     playHitSound() {
-        // Hit sound - sharp ping
-        this.playSound(1200, 0.1, 'triangle', 0.2);
+        // Priority 50 - Hit sound (sharp ping)
+        this.playSound(1500, 0.1, 50, 'square', 0.18);
+    }
+    
+    playTitleMusic() {
+        // Priority 5 - Title screen music (lowest priority)
+        if (this.titleMusicPosition >= this.titleMelody.length) {
+            this.titleMusicPosition = 0; // Loop the melody
+        }
+        
+        const note = this.titleMelody[this.titleMusicPosition];
+        if (note.note !== 'rest') {
+            const frequency = this.frequencies[note.note];
+            this.playSound(frequency, note.duration, 5, 'square', 0.1);
+        }
+        
+        this.titleMusicPosition++;
+        this.titleMusicTimer = note.duration;
+    }
+    
+    updateTitleMusic(deltaTime) {
+        if (this.titleMusicTimer > 0) {
+            this.titleMusicTimer -= deltaTime;
+        } else {
+            this.playTitleMusic();
+        }
     }
     
     generateTerrain() {
@@ -154,7 +266,49 @@ class Game {
         }
     }
     
+    spawnBirds() {
+        // Spawn birds randomly across the sky
+        for (let i = 0; i < 5; i++) {
+            const spawnX = this.cameraX + this.width + Math.random() * 500;
+            const spawnY = Math.random() * (this.height - 300) + 50;
+            this.birds.push(new Bird(this, spawnX, spawnY));
+        }
+    }
+    
     update(deltaTime) {
+        if (this.gameState === 'title') {
+            this.updateTitleMusic(deltaTime);
+            this.titleTimer += deltaTime;
+            
+            // Start game on any key press
+            if (Object.values(this.keys).some(key => key)) {
+                this.gameState = 'playing';
+                this.titleMusicPosition = 0;
+                this.titleMusicTimer = 0;
+                
+                // Reset game state
+                this.score = 0;
+                this.player.x = 100;
+                this.player.y = this.height / 2;
+                this.player.velocityX = 100;
+                this.player.velocityY = 0;
+                this.player.health = this.player.maxHealth;
+                this.player.isAlive = true;
+                
+                // Clear arrays and respawn enemies
+                this.bullets = [];
+                this.bombs = [];
+                this.enemyBullets = [];
+                this.enemies = [];
+                this.birds = [];
+                this.spawnEnemies();
+                this.spawnBirds();
+            }
+            return;
+        }
+        
+        if (this.gameState !== 'playing') return;
+        
         this.scrollOffset += 50 * deltaTime;
         
         this.player.update(deltaTime);
@@ -196,6 +350,17 @@ class Game {
             if (bullet.x > this.cameraX + this.width + 100 || bullet.x < this.cameraX - 100 || 
                 bullet.y > this.cameraY + this.height + 100 || bullet.y < this.cameraY - 100) {
                 this.enemyBullets.splice(index, 1);
+            }
+        });
+        
+        this.birds.forEach((bird, index) => {
+            bird.update(deltaTime);
+            if (bird.x < this.cameraX - 200) {
+                this.birds.splice(index, 1);
+                // Spawn new bird on the right
+                const spawnX = this.cameraX + this.width + Math.random() * 200;
+                const spawnY = Math.random() * (this.height - 300) + 50;
+                this.birds.push(new Bird(this, spawnX, spawnY));
             }
         });
         
@@ -247,6 +412,11 @@ class Game {
     render() {
         this.ctx.clearRect(0, 0, this.width, this.height);
         
+        if (this.gameState === 'title') {
+            this.drawTitleScreen();
+            return;
+        }
+        
         // Save context and apply camera transform
         this.ctx.save();
         this.ctx.translate(-this.cameraX, -this.cameraY);
@@ -259,6 +429,7 @@ class Game {
         this.bombs.forEach(bomb => bomb.render());
         this.enemies.forEach(enemy => enemy.render());
         this.enemyBullets.forEach(bullet => bullet.render());
+        this.birds.forEach(bird => bird.render());
         
         // Restore context for UI
         this.ctx.restore();
@@ -356,6 +527,43 @@ class Game {
         this.ctx.fill();
     }
     
+    drawTitleScreen() {
+        // Gradient background
+        const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height);
+        gradient.addColorStop(0, '#87CEEB');
+        gradient.addColorStop(1, '#98D982');
+        this.ctx.fillStyle = gradient;
+        this.ctx.fillRect(0, 0, this.width, this.height);
+        
+        // Title
+        this.ctx.fillStyle = '#000000';
+        this.ctx.font = 'bold 72px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('SOPWITH', this.width / 2, 150);
+        
+        // Subtitle
+        this.ctx.font = '24px Arial';
+        this.ctx.fillText('MegaSop Edition', this.width / 2, 190);
+        
+        // Instructions
+        this.ctx.font = '18px Arial';
+        this.ctx.fillText('Press any key to start', this.width / 2, 350);
+        
+        // Controls
+        this.ctx.font = '14px Arial';
+        this.ctx.fillText('↑↓: Roll/Pitch (Hold for continuous rolls) | ←→: Power Down/Up', this.width / 2, 420);
+        this.ctx.fillText('Space: Machine Gun | B: Drop Bomb | F: Fullscreen', this.width / 2, 445);
+        
+        // Credits
+        this.ctx.font = '12px Arial';
+        this.ctx.fillStyle = '#666';
+        this.ctx.fillText('Original by BMB Compuscience', this.width / 2, 520);
+        this.ctx.fillText('Faithful recreation with authentic PC speaker music', this.width / 2, 540);
+        
+        // Reset text alignment
+        this.ctx.textAlign = 'left';
+    }
+    
     drawUI() {
         this.ctx.fillStyle = '#333';
         this.ctx.font = '20px Arial';
@@ -379,30 +587,34 @@ class Game {
         const speed = Math.sqrt(this.player.velocityX * this.player.velocityX + this.player.velocityY * this.player.velocityY);
         this.ctx.fillText(`Speed: ${Math.round(speed)}`, 10, 150);
         
+        // Roll rate indicator
+        const rollRateDPS = Math.round(this.player.rollRate * 180 / Math.PI);
+        this.ctx.fillText(`Roll Rate: ${rollRateDPS}°/s`, 10, 180);
+        
         // Stall warning
         if (speed < this.player.stallSpeed) {
             this.ctx.fillStyle = '#FF0000';
-            this.ctx.fillText('STALL!', 10, 180);
+            this.ctx.fillText('STALL!', 10, 210);
         }
         
         // Altitude indicator
         const groundLevel = this.getTerrainHeightAt(this.player.x + this.player.width / 2);
         const altitude = Math.max(0, Math.round(groundLevel - (this.player.y + this.player.height)));
         this.ctx.fillStyle = '#333';
-        this.ctx.fillText(`Altitude: ${altitude}ft`, 10, 210);
+        this.ctx.fillText(`Altitude: ${altitude}ft`, 10, 240);
         
         // Health indicator
-        this.ctx.fillText(`Health: ${Math.round(this.player.health)}%`, 10, 240);
+        this.ctx.fillText(`Health: ${Math.round(this.player.health)}%`, 10, 270);
         
         // Health bar
         const barWidth = 100;
         const barHeight = 10;
         this.ctx.strokeStyle = '#333';
-        this.ctx.strokeRect(10, 250, barWidth, barHeight);
+        this.ctx.strokeRect(10, 280, barWidth, barHeight);
         
         const healthPercent = this.player.health / this.player.maxHealth;
         this.ctx.fillStyle = healthPercent > 0.5 ? '#00FF00' : healthPercent > 0.25 ? '#FFFF00' : '#FF0000';
-        this.ctx.fillRect(10, 250, barWidth * healthPercent, barHeight);
+        this.ctx.fillRect(10, 280, barWidth * healthPercent, barHeight);
     }
     
     gameLoop(currentTime) {
@@ -417,8 +629,13 @@ class Game {
     
     gameOver() {
         console.log("Game Over! Final Score:", this.score);
-        // For now, just restart the game
-        this.init();
+        this.gameState = 'title';
+        this.titleTimer = 0;
+        this.titleMusicPosition = 0;
+        this.titleMusicTimer = 0;
+        // Reset player health for next game
+        this.player.health = this.player.maxHealth;
+        this.player.isAlive = true;
     }
     
     start() {
@@ -448,15 +665,36 @@ class Player {
         this.health = 100;
         this.maxHealth = 100;
         this.isAlive = true;
+        this.rollRate = 0; // Current roll rate in radians per second
+        this.maxRollRate = 3; // Maximum roll rate (about 170 degrees/sec)
     }
     
     update(deltaTime) {
-        // Pitch controls
+        // Continuous roll controls - like real aircraft
         if (this.game.keys['ArrowUp']) {
-            this.pitch = Math.max(this.pitch - 2 * deltaTime, -Math.PI / 3); // Max 60 degrees up
+            // Pull back on stick - pitch up and increase roll rate
+            this.rollRate = Math.min(this.rollRate + 5 * deltaTime, this.maxRollRate);
+        } else if (this.game.keys['ArrowDown']) {
+            // Push forward on stick - pitch down and reverse roll rate
+            this.rollRate = Math.max(this.rollRate - 5 * deltaTime, -this.maxRollRate);
+        } else {
+            // Center stick - reduce roll rate toward zero
+            if (this.rollRate > 0) {
+                this.rollRate = Math.max(this.rollRate - 3 * deltaTime, 0);
+            } else if (this.rollRate < 0) {
+                this.rollRate = Math.min(this.rollRate + 3 * deltaTime, 0);
+            }
         }
-        if (this.game.keys['ArrowDown']) {
-            this.pitch = Math.min(this.pitch + 2 * deltaTime, Math.PI / 3); // Max 60 degrees down
+        
+        // Apply continuous rolling motion
+        this.pitch += this.rollRate * deltaTime;
+        
+        // Keep pitch in reasonable range (allow unlimited rolling)
+        while (this.pitch > Math.PI * 2) {
+            this.pitch -= Math.PI * 2;
+        }
+        while (this.pitch < -Math.PI * 2) {
+            this.pitch += Math.PI * 2;
         }
         
         // Power controls
@@ -845,6 +1083,63 @@ class EnemyBullet {
     render() {
         this.game.ctx.fillStyle = '#FF4500'; // Orange-red enemy bullets
         this.game.ctx.fillRect(this.x, this.y, this.width, this.height);
+    }
+}
+
+class Bird {
+    constructor(game, x, y) {
+        this.game = game;
+        this.x = x;
+        this.y = y;
+        this.width = 8;
+        this.height = 6;
+        this.velocityX = -30 - Math.random() * 20; // Slow moving left
+        this.velocityY = Math.sin(Date.now() * 0.001) * 10; // Gentle up/down movement
+        this.wingTimer = Math.random() * Math.PI * 2; // Random wing animation start
+        this.originalY = y;
+    }
+    
+    update(deltaTime) {
+        this.x += this.velocityX * deltaTime;
+        
+        // Gentle sine wave flight pattern
+        this.wingTimer += deltaTime * 8;
+        this.y = this.originalY + Math.sin(this.wingTimer) * 15;
+        
+        // Random direction changes
+        if (Math.random() < 0.005) {
+            this.velocityY += (Math.random() - 0.5) * 20;
+            this.velocityY = Math.max(-30, Math.min(30, this.velocityY));
+        }
+    }
+    
+    render() {
+        const ctx = this.game.ctx;
+        
+        // Draw simple bird shape
+        ctx.fillStyle = '#654321'; // Brown color
+        
+        // Body (oval)
+        ctx.beginPath();
+        ctx.ellipse(this.x + 4, this.y + 3, 4, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wings (animated)
+        const wingFlap = Math.sin(this.wingTimer * 4) * 0.5 + 0.5;
+        ctx.strokeStyle = '#654321';
+        ctx.lineWidth = 1;
+        
+        // Left wing
+        ctx.beginPath();
+        ctx.moveTo(this.x + 2, this.y + 3);
+        ctx.lineTo(this.x - 2, this.y + 3 - wingFlap * 3);
+        ctx.stroke();
+        
+        // Right wing
+        ctx.beginPath();
+        ctx.moveTo(this.x + 6, this.y + 3);
+        ctx.lineTo(this.x + 10, this.y + 3 - wingFlap * 3);
+        ctx.stroke();
     }
 }
 

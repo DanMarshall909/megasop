@@ -1,0 +1,47 @@
+import { GameObject } from '../types/game.js';
+import { AudioSystem } from '../systems/AudioSystem.js';
+import { Game } from './Game.js';
+export declare class Player implements GameObject {
+    private game;
+    private audioSystem;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    private velocityX;
+    private velocityY;
+    private pitch;
+    private power;
+    private rollRate;
+    private readonly maxPower;
+    private readonly maxSpeed;
+    private readonly stallSpeed;
+    private readonly maxRollRate;
+    private readonly liftCoefficient;
+    private readonly dragCoefficient;
+    private health;
+    private readonly maxHealth;
+    private isAlive;
+    private lastShot;
+    private lastBomb;
+    constructor(game: Game, audioSystem: AudioSystem);
+    update(deltaTime: number): void;
+    private shoot;
+    private dropBomb;
+    takeDamage(amount: number): void;
+    reset(x: number, y: number): void;
+    render(ctx: CanvasRenderingContext2D): void;
+    getX(): number;
+    getY(): number;
+    getWidth(): number;
+    getHeight(): number;
+    getPower(): number;
+    getPitch(): number;
+    getRollRate(): number;
+    getHealth(): number;
+    getMaxHealth(): number;
+    getVelocityX(): number;
+    getVelocityY(): number;
+    getStallSpeed(): number;
+}
+//# sourceMappingURL=Player.d.ts.map

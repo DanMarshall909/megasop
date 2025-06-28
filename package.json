@@ -1,0 +1,21 @@
+{
+  "name": "megasop",
+  "version": "1.0.0",
+  "description": "A faithful recreation of the classic Sopwith biplane shooter with authentic PC speaker audio",
+  "main": "dist/main.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "dev": "tsc --watch & python3 -m http.server 8000",
+    "serve": "python3 -m http.server 8000",
+    "clean": "rm -rf dist/*",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["game", "biplane", "sopwith", "typescript", "canvas", "retro"],
+  "author": "MegaSop Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
