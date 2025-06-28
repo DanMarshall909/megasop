@@ -9,6 +9,7 @@ class Game {
         this.lastTime = 0;
         
         this.setupEventListeners();
+        this.setupAudio();
         this.init();
     }
     
@@ -29,10 +30,12 @@ class Game {
         this.bullets = [];
         this.bombs = [];
         this.enemies = [];
+        this.enemyBullets = [];
         this.scrollOffset = 0;
         this.score = 0;
         this.cameraX = 0;
         this.cameraY = 0;
+        this.terrain = this.generateTerrain();
         
         this.spawnEnemies();
     }
@@ -47,6 +50,102 @@ class Game {
         });
     }
     
+    setupAudio() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.soundEnabled = true;
+        } catch (e) {
+            console.log("Web Audio API not supported");
+            this.soundEnabled = false;
+        }
+    }
+    
+    playSound(frequency, duration, type = 'sine', volume = 0.1) {
+        if (!this.soundEnabled) return;
+        
+        try {
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+            oscillator.type = type;
+            
+            gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, this.audioContext.currentTime + 0.01);
+            gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+            
+            oscillator.start(this.audioContext.currentTime);
+            oscillator.stop(this.audioContext.currentTime + duration);
+        } catch (e) {
+            console.log("Sound playback failed");
+        }
+    }
+    
+    playEngineSound() {
+        if (!this.soundEnabled) return;
+        
+        // Create a subtle engine rumble sound
+        const baseFreq = 60 + this.player.power * 40;
+        this.playSound(baseFreq, 0.1, 'sawtooth', 0.05);
+    }
+    
+    playShootSound() {
+        // Machine gun sound - quick burst
+        this.playSound(800, 0.05, 'square', 0.1);
+        setTimeout(() => this.playSound(600, 0.03, 'square', 0.08), 20);
+    }
+    
+    playBombSound() {
+        // Bomb drop sound - descending tone
+        this.playSound(300, 0.3, 'square', 0.12);
+    }
+    
+    playExplosionSound() {
+        // Explosion sound - noise burst
+        this.playSound(150, 0.4, 'sawtooth', 0.15);
+        setTimeout(() => this.playSound(80, 0.3, 'square', 0.1), 50);
+    }
+    
+    playHitSound() {
+        // Hit sound - sharp ping
+        this.playSound(1200, 0.1, 'triangle', 0.2);
+    }
+    
+    generateTerrain() {
+        const terrain = [];
+        const terrainLength = 10000; // Length of terrain
+        const baseHeight = this.height - 100; // Base ground level
+        
+        // Generate terrain using sine waves for hills and valleys
+        for (let x = 0; x < terrainLength; x += 20) {
+            // Combine multiple sine waves for varied terrain
+            const height1 = Math.sin(x * 0.005) * 80;
+            const height2 = Math.sin(x * 0.01) * 40;
+            const height3 = Math.sin(x * 0.02) * 20;
+            
+            const terrainHeight = baseHeight + height1 + height2 + height3;
+            terrain.push({ x: x, y: terrainHeight });
+        }
+        
+        return terrain;
+    }
+    
+    getTerrainHeightAt(x) {
+        // Find the terrain height at a specific x coordinate
+        for (let i = 0; i < this.terrain.length - 1; i++) {
+            if (x >= this.terrain[i].x && x <= this.terrain[i + 1].x) {
+                // Linear interpolation between two terrain points
+                const t = (x - this.terrain[i].x) / (this.terrain[i + 1].x - this.terrain[i].x);
+                return this.terrain[i].y + t * (this.terrain[i + 1].y - this.terrain[i].y);
+            }
+        }
+        // Default to base height if outside terrain bounds
+        return this.height - 100;
+    }
+    
     spawnEnemies() {
         for (let i = 0; i < 3; i++) {
             const spawnX = this.cameraX + this.width + i * 300;
@@ -59,6 +158,11 @@ class Game {
         this.scrollOffset += 50 * deltaTime;
         
         this.player.update(deltaTime);
+        
+        // Play engine sound occasionally for ambience
+        if (Math.random() < 0.02) {
+            this.playEngineSound();
+        }
         
         // Update camera to follow player
         this.cameraX = this.player.x - this.width / 2;
@@ -87,6 +191,14 @@ class Game {
             }
         });
         
+        this.enemyBullets.forEach((bullet, index) => {
+            bullet.update(deltaTime);
+            if (bullet.x > this.cameraX + this.width + 100 || bullet.x < this.cameraX - 100 || 
+                bullet.y > this.cameraY + this.height + 100 || bullet.y < this.cameraY - 100) {
+                this.enemyBullets.splice(index, 1);
+            }
+        });
+        
         this.checkCollisions();
     }
     
@@ -97,6 +209,7 @@ class Game {
                     this.bullets.splice(bulletIndex, 1);
                     this.enemies.splice(enemyIndex, 1);
                     this.score += 100;
+                    this.playExplosionSound();
                     this.enemies.push(new Enemy(this, this.width + 200, Math.random() * (this.height - 200) + 100));
                 }
             });
@@ -108,9 +221,19 @@ class Game {
                     this.bombs.splice(bombIndex, 1);
                     this.enemies.splice(enemyIndex, 1);
                     this.score += 150;
+                    this.playExplosionSound();
                     this.enemies.push(new Enemy(this, this.width + 200, Math.random() * (this.height - 200) + 100));
                 }
             });
+        });
+        
+        // Enemy bullets hitting player
+        this.enemyBullets.forEach((bullet, bulletIndex) => {
+            if (this.isColliding(bullet, this.player)) {
+                this.enemyBullets.splice(bulletIndex, 1);
+                this.player.takeDamage(15);
+                this.playHitSound();
+            }
         });
     }
     
@@ -129,11 +252,13 @@ class Game {
         this.ctx.translate(-this.cameraX, -this.cameraY);
         
         this.drawBackground();
+        this.drawTerrain();
         
         this.player.render();
         this.bullets.forEach(bullet => bullet.render());
         this.bombs.forEach(bomb => bomb.render());
         this.enemies.forEach(enemy => enemy.render());
+        this.enemyBullets.forEach(bullet => bullet.render());
         
         // Restore context for UI
         this.ctx.restore();
@@ -142,20 +267,92 @@ class Game {
     }
     
     drawBackground() {
-        const cloudOffset = this.scrollOffset * 0.3;
+        // Multiple cloud layers for parallax effect
         this.ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < 5; i++) {
-            const x = (i * 200 - cloudOffset) % (this.width + 100);
-            const y = 50 + Math.sin(i) * 30;
-            this.drawCloud(x, y);
+        
+        // Far clouds (slowest)
+        const farCloudOffset = this.cameraX * 0.1;
+        for (let i = 0; i < 8; i++) {
+            const x = (i * 300 - farCloudOffset) % (this.width + 200) + this.cameraX - 100;
+            const y = 30 + Math.sin(i * 0.5) * 20;
+            this.ctx.globalAlpha = 0.4;
+            this.drawCloud(x, y, 0.8);
         }
+        
+        // Medium clouds
+        const medCloudOffset = this.cameraX * 0.3;
+        for (let i = 0; i < 6; i++) {
+            const x = (i * 250 - medCloudOffset) % (this.width + 150) + this.cameraX - 75;
+            const y = 80 + Math.sin(i * 0.7) * 25;
+            this.ctx.globalAlpha = 0.6;
+            this.drawCloud(x, y, 1.0);
+        }
+        
+        // Near clouds (fastest)
+        const nearCloudOffset = this.cameraX * 0.6;
+        for (let i = 0; i < 4; i++) {
+            const x = (i * 200 - nearCloudOffset) % (this.width + 100) + this.cameraX - 50;
+            const y = 120 + Math.sin(i) * 30;
+            this.ctx.globalAlpha = 0.8;
+            this.drawCloud(x, y, 1.2);
+        }
+        
+        this.ctx.globalAlpha = 1.0; // Reset alpha
     }
     
-    drawCloud(x, y) {
+    drawCloud(x, y, scale = 1.0) {
         this.ctx.beginPath();
-        this.ctx.arc(x, y, 20, 0, Math.PI * 2);
-        this.ctx.arc(x + 25, y, 30, 0, Math.PI * 2);
-        this.ctx.arc(x + 50, y, 20, 0, Math.PI * 2);
+        this.ctx.arc(x, y, 20 * scale, 0, Math.PI * 2);
+        this.ctx.arc(x + 25 * scale, y, 30 * scale, 0, Math.PI * 2);
+        this.ctx.arc(x + 50 * scale, y, 20 * scale, 0, Math.PI * 2);
+        this.ctx.fill();
+    }
+    
+    drawTerrain() {
+        this.ctx.fillStyle = '#8B4513'; // Brown terrain
+        this.ctx.strokeStyle = '#654321'; // Darker brown outline
+        this.ctx.lineWidth = 2;
+        
+        // Only draw terrain visible on screen
+        const startX = Math.max(0, this.cameraX - 100);
+        const endX = this.cameraX + this.width + 100;
+        
+        this.ctx.beginPath();
+        
+        // Start from bottom of screen
+        this.ctx.moveTo(startX, this.height);
+        
+        // Draw terrain curve
+        for (let x = startX; x <= endX; x += 20) {
+            const terrainHeight = this.getTerrainHeightAt(x);
+            this.ctx.lineTo(x, terrainHeight);
+        }
+        
+        // Close the shape at bottom right
+        this.ctx.lineTo(endX, this.height);
+        this.ctx.closePath();
+        
+        // Fill and stroke
+        this.ctx.fill();
+        this.ctx.stroke();
+        
+        // Add some grass on top
+        this.ctx.fillStyle = '#228B22'; // Forest green
+        this.ctx.beginPath();
+        this.ctx.moveTo(startX, this.getTerrainHeightAt(startX));
+        
+        for (let x = startX; x <= endX; x += 20) {
+            const terrainHeight = this.getTerrainHeightAt(x);
+            this.ctx.lineTo(x, terrainHeight);
+        }
+        
+        // Add grass layer (10 pixels thick)
+        for (let x = endX; x >= startX; x -= 20) {
+            const terrainHeight = this.getTerrainHeightAt(x);
+            this.ctx.lineTo(x, terrainHeight - 10);
+        }
+        
+        this.ctx.closePath();
         this.ctx.fill();
     }
     
@@ -187,6 +384,25 @@ class Game {
             this.ctx.fillStyle = '#FF0000';
             this.ctx.fillText('STALL!', 10, 180);
         }
+        
+        // Altitude indicator
+        const groundLevel = this.getTerrainHeightAt(this.player.x + this.player.width / 2);
+        const altitude = Math.max(0, Math.round(groundLevel - (this.player.y + this.player.height)));
+        this.ctx.fillStyle = '#333';
+        this.ctx.fillText(`Altitude: ${altitude}ft`, 10, 210);
+        
+        // Health indicator
+        this.ctx.fillText(`Health: ${Math.round(this.player.health)}%`, 10, 240);
+        
+        // Health bar
+        const barWidth = 100;
+        const barHeight = 10;
+        this.ctx.strokeStyle = '#333';
+        this.ctx.strokeRect(10, 250, barWidth, barHeight);
+        
+        const healthPercent = this.player.health / this.player.maxHealth;
+        this.ctx.fillStyle = healthPercent > 0.5 ? '#00FF00' : healthPercent > 0.25 ? '#FFFF00' : '#FF0000';
+        this.ctx.fillRect(10, 250, barWidth * healthPercent, barHeight);
     }
     
     gameLoop(currentTime) {
@@ -197,6 +413,12 @@ class Game {
         this.render();
         
         requestAnimationFrame((time) => this.gameLoop(time));
+    }
+    
+    gameOver() {
+        console.log("Game Over! Final Score:", this.score);
+        // For now, just restart the game
+        this.init();
     }
     
     start() {
@@ -223,6 +445,9 @@ class Player {
         this.stallSpeed = 80; // Minimum speed to maintain lift
         this.liftCoefficient = 0.8;
         this.dragCoefficient = 0.02;
+        this.health = 100;
+        this.maxHealth = 100;
+        this.isAlive = true;
     }
     
     update(deltaTime) {
@@ -289,22 +514,32 @@ class Player {
         this.x += this.velocityX * deltaTime;
         this.y += this.velocityY * deltaTime;
         
-        // Boundary checking
+        // Terrain collision detection
+        const terrainHeight = this.game.getTerrainHeightAt(this.x + this.width / 2);
+        if (this.y + this.height > terrainHeight) {
+            // Crashed into ground
+            this.y = terrainHeight - this.height;
+            this.velocityY = Math.min(0, this.velocityY * -0.3); // Bounce with energy loss
+            this.velocityX *= 0.8; // Friction on ground
+            
+            // Damage from hard impacts
+            const impactSpeed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
+            if (impactSpeed > 200) {
+                const damage = Math.min(50, (impactSpeed - 200) / 4);
+                this.takeDamage(damage);
+                this.game.playHitSound();
+                console.log("Crashed! Damage:", Math.round(damage));
+            }
+        }
+        
+        // Boundary checking (left/right and sky)
         if (this.x < 0) {
             this.x = 0;
             this.velocityX = Math.max(0, this.velocityX);
         }
-        if (this.x > this.game.width - this.width) {
-            this.x = this.game.width - this.width;
-            this.velocityX = Math.min(0, this.velocityX);
-        }
         if (this.y < 0) {
             this.y = 0;
             this.velocityY = Math.max(0, this.velocityY);
-        }
-        if (this.y > this.game.height - this.height) {
-            this.y = this.game.height - this.height;
-            this.velocityY = Math.min(0, this.velocityY);
         }
         
         if (this.game.keys[' '] && Date.now() - this.lastShot > 200) {
@@ -329,10 +564,24 @@ class Player {
         const fireY = this.y + this.height / 2 + Math.sin(this.pitch) * 30;
         
         this.game.bullets.push(new Bullet(this.game, fireX, fireY, bulletVelX, bulletVelY));
+        this.game.playShootSound();
     }
     
     dropBomb() {
         this.game.bombs.push(new Bomb(this.game, this.x + this.width / 2, this.y + this.height));
+        this.game.playBombSound();
+    }
+    
+    takeDamage(amount) {
+        if (!this.isAlive) return;
+        
+        this.health = Math.max(0, this.health - amount);
+        
+        if (this.health <= 0) {
+            this.isAlive = false;
+            this.game.gameOver();
+            console.log("Player destroyed!");
+        }
     }
     
     render() {
@@ -365,16 +614,147 @@ class Enemy {
         this.y = y;
         this.width = 50;
         this.height = 25;
-        this.speed = 100;
-        this.direction = Math.random() > 0.5 ? 1 : -1;
+        this.speed = 150;
+        this.pitch = 0;
+        this.velocityX = -120; // Start moving left toward player
+        this.velocityY = 0;
+        this.maxSpeed = 300;
+        this.power = 0.7;
+        this.aiState = 'patrol'; // patrol, chase, loop, evade
+        this.aiTimer = 0;
+        this.targetX = x;
+        this.targetY = y;
+        this.loopStartTime = 0;
+        this.lastShot = 0;
     }
     
     update(deltaTime) {
-        this.x -= this.speed * deltaTime;
-        this.y += this.direction * 30 * deltaTime;
+        this.aiTimer += deltaTime;
         
-        if (this.y <= 0 || this.y >= this.game.height - this.height) {
-            this.direction *= -1;
+        // AI decision making
+        const distToPlayer = Math.sqrt(
+            Math.pow(this.game.player.x - this.x, 2) + 
+            Math.pow(this.game.player.y - this.y, 2)
+        );
+        
+        // State transitions
+        if (distToPlayer < 300 && this.aiState === 'patrol') {
+            this.aiState = 'chase';
+            this.aiTimer = 0;
+        } else if (distToPlayer > 500 && this.aiState === 'chase') {
+            this.aiState = 'patrol';
+            this.aiTimer = 0;
+        } else if (Math.random() < 0.005 && this.aiState !== 'loop') {
+            this.aiState = 'loop';
+            this.loopStartTime = this.aiTimer;
+        }
+        
+        // AI behavior
+        this.executeAI(deltaTime);
+        
+        // Apply physics (simplified version of player physics)
+        const thrust = this.power * 300;
+        this.velocityX += Math.cos(this.pitch) * thrust * deltaTime;
+        this.velocityY += Math.sin(this.pitch) * thrust * deltaTime;
+        
+        // Gravity and drag
+        this.velocityY += 100 * deltaTime;
+        this.velocityX *= 0.99;
+        this.velocityY *= 0.99;
+        
+        // Speed limiting
+        const speed = Math.sqrt(this.velocityX * this.velocityX + this.velocityY * this.velocityY);
+        if (speed > this.maxSpeed) {
+            this.velocityX = (this.velocityX / speed) * this.maxSpeed;
+            this.velocityY = (this.velocityY / speed) * this.maxSpeed;
+        }
+        
+        // Update position
+        this.x += this.velocityX * deltaTime;
+        this.y += this.velocityY * deltaTime;
+        
+        // Terrain avoidance
+        const terrainHeight = this.game.getTerrainHeightAt(this.x + this.width / 2);
+        if (this.y + this.height > terrainHeight - 50) {
+            this.pitch = Math.max(this.pitch - 1 * deltaTime, -Math.PI / 4);
+            this.power = Math.min(this.power + deltaTime, 1.0);
+        }
+        
+        // Shooting at player
+        if (distToPlayer < 400 && Math.abs(this.game.player.y - this.y) < 100) {
+            this.shootAtPlayer();
+        }
+    }
+    
+    executeAI(deltaTime) {
+        switch (this.aiState) {
+            case 'patrol':
+                // Gentle circling pattern
+                this.pitch += Math.sin(this.aiTimer * 0.5) * 0.5 * deltaTime;
+                this.power = 0.6;
+                break;
+                
+            case 'chase':
+                // Aim toward player
+                const angleToPlayer = Math.atan2(
+                    this.game.player.y - this.y,
+                    this.game.player.x - this.x
+                );
+                this.pitch = this.lerp(this.pitch, angleToPlayer, 2 * deltaTime);
+                this.power = 0.8;
+                break;
+                
+            case 'loop':
+                // Perform barrel roll/loop
+                const loopProgress = (this.aiTimer - this.loopStartTime) * 2;
+                if (loopProgress < Math.PI * 2) {
+                    this.pitch = loopProgress;
+                    this.power = 0.9;
+                } else {
+                    this.aiState = 'patrol';
+                    this.pitch = 0;
+                }
+                break;
+                
+            case 'evade':
+                // Random evasive maneuvers
+                this.pitch += (Math.random() - 0.5) * 3 * deltaTime;
+                this.power = 1.0;
+                if (this.aiTimer > 2) {
+                    this.aiState = 'patrol';
+                }
+                break;
+        }
+        
+        // Clamp pitch
+        this.pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.pitch));
+    }
+    
+    lerp(a, b, t) {
+        return a + (b - a) * t;
+    }
+    
+    shootAtPlayer() {
+        if (Date.now() - this.lastShot > 1200) {
+            const bulletSpeed = 400;
+            const angleToPlayer = Math.atan2(
+                this.game.player.y - this.y,
+                this.game.player.x - this.x
+            );
+            
+            const bulletVelX = Math.cos(angleToPlayer) * bulletSpeed;
+            const bulletVelY = Math.sin(angleToPlayer) * bulletSpeed;
+            
+            // Create enemy bullet
+            this.game.enemyBullets.push(new EnemyBullet(
+                this.game,
+                this.x + this.width / 2,
+                this.y + this.height / 2,
+                bulletVelX,
+                bulletVelY
+            ));
+            
+            this.lastShot = Date.now();
         }
     }
     
@@ -383,6 +763,10 @@ class Enemy {
         
         ctx.save();
         ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+        
+        // Apply pitch rotation for visual feedback during maneuvers
+        ctx.rotate(this.pitch);
+        
         ctx.scale(1, -1); // Flip only vertically (enemy faces right, upside down)
         
         // Same SVG biplane path as player
@@ -438,6 +822,28 @@ class Bomb {
     
     render() {
         this.game.ctx.fillStyle = '#333';
+        this.game.ctx.fillRect(this.x, this.y, this.width, this.height);
+    }
+}
+
+class EnemyBullet {
+    constructor(game, x, y, speedX, speedY) {
+        this.game = game;
+        this.x = x;
+        this.y = y;
+        this.speedX = speedX;
+        this.speedY = speedY;
+        this.width = 4;
+        this.height = 2;
+    }
+    
+    update(deltaTime) {
+        this.x += this.speedX * deltaTime;
+        this.y += this.speedY * deltaTime;
+    }
+    
+    render() {
+        this.game.ctx.fillStyle = '#FF4500'; // Orange-red enemy bullets
         this.game.ctx.fillRect(this.x, this.y, this.width, this.height);
     }
 }
